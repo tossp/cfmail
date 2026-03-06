@@ -24,6 +24,12 @@ app.onError((err, c) => {
 app.use("*", cors());
 
 app.get("/api/emails/:id/delete", async (c) => {
+  if (c.env.RATE_LIMITER) {
+    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+    const { success } = await c.env.RATE_LIMITER.limit({ key: ip });
+    if (!success) return c.text("Too many requests", 429);
+  }
+
   const id = c.req.param("id");
   const sig = c.req.query("sig") ?? "";
   const html = (title: string, msg: string, ok: boolean) =>
@@ -61,7 +67,7 @@ app.use("/api/*", async (c, next) => {
   if (!header) return c.json({ error: "Unauthorized" }, 401);
 
   const token = header.replace(/^Bearer\s+/i, "");
-  if (!timingSafeEqual(token, c.env.AUTH_TOKEN)) {
+  if (!(await timingSafeEqual(token, c.env.AUTH_TOKEN))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   await next();
@@ -104,7 +110,7 @@ app.get("/api/emails/:id/raw", async (c) => {
   return new Response(object.body, {
     headers: {
       "Content-Type": "message/rfc822",
-      "Content-Disposition": `attachment; filename="${email.id}.eml"`,
+      "Content-Disposition": safeContentDisposition(`${email.id}.eml`),
     },
   });
 });
@@ -122,7 +128,7 @@ app.get("/api/emails/:id/attachments/:aid", async (c) => {
   return new Response(object.body, {
     headers: {
       "Content-Type": attachment.content_type ?? "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": safeContentDisposition(filename),
     },
   });
 });
@@ -146,14 +152,19 @@ app.delete("/api/emails/:id", async (c) => {
   return c.json({ success: true });
 });
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    const dummy = new Uint8Array(a.length);
-    crypto.subtle.timingSafeEqual(dummy, dummy);
-    return false;
-  }
+function safeContentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(filename);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  return crypto.subtle.timingSafeEqual(encoder.encode(a), encoder.encode(b));
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(a)),
+    crypto.subtle.digest("SHA-256", encoder.encode(b)),
+  ]);
+  return crypto.subtle.timingSafeEqual(ha, hb);
 }
 
 export default app;

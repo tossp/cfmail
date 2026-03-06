@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import { handleEmail } from "./email-handler";
+import { sendNotifications } from "./notify";
 import app from "./api";
 import { getExpiredBatch, deleteEmailsByIds } from "./db";
 import { deleteObjects } from "./storage";
@@ -11,7 +12,18 @@ const R2_DELETE_RETRIES = 2;
 
 export default {
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(handleEmail(message, env));
+    try {
+      const emailRecord = await handleEmail(message, env);
+      if (emailRecord) {
+        ctx.waitUntil(sendNotifications(env, emailRecord));
+      }
+    } catch (err) {
+      log.error("email.handler_failed", {
+        from: message.from, to: message.to,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      message.setReject("Temporary processing error, please retry later");
+    }
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

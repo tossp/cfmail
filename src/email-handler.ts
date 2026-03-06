@@ -10,16 +10,16 @@ import {
   attachmentKey,
 } from "./storage";
 import { isBlacklisted, checkJunkMail } from "./spam-filter";
-import { sendNotifications } from "./notify";
 import { log } from "./log";
 
 const DEFAULT_MAX_EMAIL_SIZE = 25 * 1024 * 1024; // 25MB
 const DEFAULT_MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
+const D1_TEXT_MAX_BYTES = 64 * 1024; // 64KB per text/html field in D1
 
 export async function handleEmail(
   message: ForwardableEmailMessage,
   env: Env,
-): Promise<void> {
+): Promise<EmailRecord | void> {
   const from = message.from;
   const to = message.to;
 
@@ -100,8 +100,8 @@ export async function handleEmail(
     from_name: parsed?.from?.name ?? null,
     to_address: to,
     subject: parsed?.subject ?? subjectFromHeaders,
-    text: parsed?.text ?? null,
-    html: parsed?.html ?? null,
+    text: truncate(parsed?.text, D1_TEXT_MAX_BYTES),
+    html: truncate(parsed?.html, D1_TEXT_MAX_BYTES),
     received_at: now,
     raw_size: rawSize,
     has_attachments: attachmentRecords.length > 0 ? 1 : 0,
@@ -150,13 +150,22 @@ export async function handleEmail(
     parsed: parsed !== null,
   });
 
-  await sendNotifications(env, emailRecord);
+  return emailRecord;
 }
 
 function parseSize(value: string | undefined): number {
   if (!value) return 0;
   const num = parseInt(value, 10);
   return isNaN(num) ? 0 : num;
+}
+
+function truncate(value: string | undefined | null, maxBytes: number): string | null {
+  if (!value) return null;
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(value);
+  if (encoded.byteLength <= maxBytes) return value;
+  const decoder = new TextDecoder();
+  return decoder.decode(encoded.slice(0, maxBytes));
 }
 
 async function streamToArrayBuffer(stream: ReadableStream): Promise<ArrayBuffer> {
