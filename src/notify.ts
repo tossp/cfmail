@@ -33,9 +33,9 @@ async function sendGotify(env: Env, email: EmailRecord): Promise<void> {
     lines.push("", "---", "", preview + (email.text.length > 200 ? "…" : ""));
   }
 
-  const clickBase = env.GOTIFY_CLICK_URL?.trim();
-  if (clickBase) {
-    const detailUrl = clickBase.replace("{id}", email.id);
+  const siteUrl = env.SITE_URL?.trim()?.replace(/\/+$/, "");
+  if (siteUrl) {
+    const detailUrl = `${siteUrl}/api/emails/${email.id}`;
     const deleteSig = await signAction(`delete:${email.id}`, env.AUTH_TOKEN);
     const deleteUrl = `${detailUrl}/delete?sig=${deleteSig}`;
     lines.push("", `[📋 详情](${detailUrl})  |  [🗑 删除](${deleteUrl})`);
@@ -45,9 +45,10 @@ async function sendGotify(env: Env, email: EmailRecord): Promise<void> {
     "client::display": { contentType: "text/markdown" },
   };
 
-  if (clickBase) {
-    const clickUrl = clickBase.replace("{id}", email.id);
-    extras["client::notification"] = { click: { url: clickUrl } };
+  if (siteUrl) {
+    extras["client::notification"] = {
+      click: { url: `${siteUrl}/api/emails/${email.id}` },
+    };
   }
 
   const url = `${baseUrl.replace(/\/+$/, "")}/message?token=${token}`;

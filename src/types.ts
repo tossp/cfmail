@@ -12,7 +12,7 @@ export interface Env {
   WEBHOOK_SECRET: string;
   GOTIFY_URL: string;
   GOTIFY_TOKEN: string;
-  GOTIFY_CLICK_URL: string;
+  SITE_URL: string;
 }
 
 interface RateLimit {

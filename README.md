@@ -130,7 +130,7 @@ DELETE /api/emails/:id
 | `WEBHOOK_SECRET` | `""` | Webhook HMAC-SHA256 签名密钥（留空则不签名） |
 | `GOTIFY_URL` | `""` | Gotify 服务地址（如 `https://gotify.example.com`，留空则不推送） |
 | `GOTIFY_TOKEN` | `""` | Gotify Application Token |
-| `GOTIFY_CLICK_URL` | `""` | 通知点击跳转 URL 模板，`{id}` 会替换为邮件 ID（如 `https://mail.example.com/emails/{id}`） |
+| `SITE_URL` | `""` | 站点对外访问地址（如 `https://cfmail.your-domain.workers.dev`），用于生成通知中的邮件链接 |
 
 Secret 变量（通过 `wrangler secret put` 设置）：
 
@@ -186,7 +186,7 @@ simple = { limit = 100, period = 60 }
 
 - 使用 Markdown 格式展示发件人、收件人、大小等信息
 - 预览邮件正文前 200 字符
-- 配合 `GOTIFY_CLICK_URL` 可实现点击通知跳转到邮件详情
+- 配合 `SITE_URL` 自动生成邮件详情和删除链接
 - 消息体内附带 HMAC 签名的**删除链接**，点击可直接删除邮件（无需暴露 AUTH_TOKEN）
 
 利用 Gotify 的 `client::notification.click.url` extras，在 Android/Web 客户端上点击通知可直接打开邮件：
@@ -195,12 +195,12 @@ simple = { limit = 100, period = 60 }
 # wrangler.toml 示例
 GOTIFY_URL = "https://gotify.example.com"
 GOTIFY_TOKEN = "your-app-token"
-GOTIFY_CLICK_URL = "https://cfmail.your-domain.workers.dev/api/emails/{id}"
+SITE_URL = "https://cfmail.your-domain.workers.dev"
 ```
 
-`{id}` 占位符会自动替换为实际邮件 ID。通知消息中会自动生成两个操作链接：
+配置 `SITE_URL` 后，通知消息中会自动生成两个操作链接：
 
-- **📋 详情** — 跳转到 `{GOTIFY_CLICK_URL}` 查看邮件（同时自动标记已读）
+- **📋 详情** — 跳转到 `{SITE_URL}/api/emails/{id}` 查看邮件（同时自动标记已读）
 - **🗑 删除** — 携带 HMAC-SHA256 签名，GET 请求直接删除邮件，无需 Bearer Token
 
 ## 自动清理

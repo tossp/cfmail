@@ -12,7 +12,7 @@ WEBHOOK_URL = ""
 WEBHOOK_SECRET = ""
 GOTIFY_URL = ""
 GOTIFY_TOKEN = ""
-GOTIFY_CLICK_URL = ""
+SITE_URL = ""
 
 [triggers]
 crons = ["0 3 * * *"]
