@@ -11,6 +11,12 @@ const app = new Hono<HonoEnv>();
 app.use("*", cors());
 
 app.use("/api/*", async (c, next) => {
+  if (c.env.RATE_LIMITER) {
+    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+    const { success } = await c.env.RATE_LIMITER.limit({ key: ip });
+    if (!success) return c.json({ error: "Rate limit exceeded" }, 429);
+  }
+
   const header = c.req.header("Authorization");
   if (!header) return c.json({ error: "Unauthorized" }, 401);
 

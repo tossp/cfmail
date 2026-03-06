@@ -13,6 +13,8 @@
 - 垃圾邮件过滤（SPF/DKIM/DMARC 检查 + 发件人黑名单）
 - 附件/邮件大小限制
 - Webhook 通知（HMAC-SHA256 签名）
+- API 限流（Cloudflare Rate Limiting）
+- 邮件解析失败降级存储（原始 .eml 不丢失）
 - 已读/未读状态，差异化保留策略自动清理
 - 一键部署到 Cloudflare
 
@@ -131,6 +133,19 @@ Secret 变量（通过 `wrangler secret put` 设置）：
 | 变量 | 说明 |
 |------|------|
 | `AUTH_TOKEN` | API 鉴权令牌 |
+
+## API 限流
+
+默认每个 IP 每 60 秒最多 100 次请求。超限返回 `429 Too Many Requests`。
+
+在 `wrangler.toml` 中可调整：
+
+```toml
+[[ratelimits]]
+binding = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 100, period = 60 }
+```
 
 ## 垃圾邮件过滤
 

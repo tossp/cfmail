@@ -38,44 +38,58 @@ export async function handleEmail(
     return;
   }
 
-  const parsed = await PostalMime.parse(rawArrayBuffer);
-
   const emailId = uuidv7();
   const now = new Date().toISOString();
 
-  const maxAttSize = parseSize(env.MAX_ATTACHMENT_SIZE) || DEFAULT_MAX_ATTACHMENT_SIZE;
-  const validAttachments = (parsed.attachments ?? []).filter((att) => {
-    if (!(att.content instanceof ArrayBuffer)) return false;
-    if (att.content.byteLength > maxAttSize) {
-      console.log(
-        `Stripped attachment "${att.filename}" (${att.content.byteLength} bytes > ${maxAttSize})`,
-      );
-      return false;
-    }
-    return true;
-  });
+  let parsed: Awaited<ReturnType<typeof PostalMime.parse>> | null = null;
+  try {
+    parsed = await PostalMime.parse(rawArrayBuffer);
+  } catch (err) {
+    console.error("Email parse failed, storing raw only:", err);
+  }
 
-  const attachmentRecords: AttachmentRecord[] = validAttachments.map((att) => {
-    const attId = uuidv7();
-    return {
-      id: attId,
-      email_id: emailId,
-      filename: att.filename ?? null,
-      content_type: att.mimeType ?? null,
-      size: (att.content as ArrayBuffer).byteLength,
-      r2_key: attachmentKey(emailId, attId),
-    };
-  });
+  let attachmentRecords: AttachmentRecord[] = [];
+  let validAttachments: typeof parsed extends null ? never[] : NonNullable<typeof parsed>["attachments"] = [];
+
+  if (parsed) {
+    const maxAttSize = parseSize(env.MAX_ATTACHMENT_SIZE) || DEFAULT_MAX_ATTACHMENT_SIZE;
+    validAttachments = (parsed.attachments ?? []).filter((att) => {
+      if (!(att.content instanceof ArrayBuffer)) return false;
+      if (att.content.byteLength > maxAttSize) {
+        console.log(
+          `Stripped attachment "${att.filename}" (${att.content.byteLength} bytes > ${maxAttSize})`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    attachmentRecords = validAttachments.map((att) => {
+      const attId = uuidv7();
+      return {
+        id: attId,
+        email_id: emailId,
+        filename: att.filename ?? null,
+        content_type: att.mimeType ?? null,
+        size: (att.content as ArrayBuffer).byteLength,
+        r2_key: attachmentKey(emailId, attId),
+      };
+    });
+  }
+
+  const subjectFromHeaders = !parsed
+    ? (message.headers.get("subject") ?? "[Parse failed]")
+    : null;
 
   const emailRecord: EmailRecord = {
     id: emailId,
-    message_id: parsed.messageId ?? null,
+    message_id: parsed?.messageId ?? message.headers.get("message-id") ?? null,
     from_address: message.from,
-    from_name: parsed.from?.name ?? null,
+    from_name: parsed?.from?.name ?? null,
     to_address: message.to,
-    subject: parsed.subject ?? null,
-    text: parsed.text ?? null,
-    html: parsed.html ?? null,
+    subject: parsed?.subject ?? subjectFromHeaders,
+    text: parsed?.text ?? null,
+    html: parsed?.html ?? null,
     received_at: now,
     raw_size: rawArrayBuffer.byteLength,
     has_attachments: attachmentRecords.length > 0 ? 1 : 0,

@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
+  RATE_LIMITER: RateLimit;
   AUTH_TOKEN: string;
   RETENTION_DAYS_UNREAD: string;
   RETENTION_DAYS_READ: string;
@@ -9,6 +10,10 @@ export interface Env {
   MAX_EMAIL_SIZE: string;
   WEBHOOK_URL: string;
   WEBHOOK_SECRET: string;
+}
+
+interface RateLimit {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
 export interface EmailRecord {
