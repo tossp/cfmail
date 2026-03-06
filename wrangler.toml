@@ -3,12 +3,22 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 [vars]
-AUTH_TOKEN = "change-me-to-a-secure-token"
+RETENTION_DAYS_UNREAD = "7"
+RETENTION_DAYS_READ = "3"
+SENDER_BLACKLIST = ""
+MAX_EMAIL_SIZE = "26214400"
+MAX_ATTACHMENT_SIZE = "10485760"
+WEBHOOK_URL = ""
+WEBHOOK_SECRET = ""
+
+[triggers]
+crons = ["0 3 * * *"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "cfmail-db"
-database_id = "<YOUR_D1_DATABASE_ID>"
+database_id = "cfmail-db"
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "BUCKET"

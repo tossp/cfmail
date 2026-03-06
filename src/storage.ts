@@ -35,10 +35,14 @@ export async function getObject(
   return bucket.get(key);
 }
 
+const R2_DELETE_BATCH_SIZE = 1000;
+
 export async function deleteObjects(
   bucket: R2Bucket,
   keys: string[],
 ): Promise<void> {
   if (keys.length === 0) return;
-  await bucket.delete(keys);
+  for (let i = 0; i < keys.length; i += R2_DELETE_BATCH_SIZE) {
+    await bucket.delete(keys.slice(i, i + R2_DELETE_BATCH_SIZE));
+  }
 }

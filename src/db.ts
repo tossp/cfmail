@@ -59,7 +59,7 @@ export async function listEmails(
   const offset = (page - 1) * size;
 
   let countSql = "SELECT COUNT(*) as total FROM emails";
-  let listSql = `SELECT id, message_id, from_address, from_name, to_address, subject, received_at, raw_size, has_attachments
+  let listSql = `SELECT id, message_id, from_address, from_name, to_address, subject, received_at, raw_size, has_attachments, read_at
                   FROM emails`;
 
   const bindings: unknown[] = [];
@@ -142,4 +142,67 @@ export async function getAttachment(
     .prepare("SELECT * FROM attachments WHERE id = ? AND email_id = ?")
     .bind(attachmentId, emailId)
     .first<AttachmentRecord>();
+}
+
+export async function markAsRead(
+  db: D1Database,
+  id: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE emails SET read_at = ? WHERE id = ? AND read_at IS NULL")
+    .bind(new Date().toISOString(), id)
+    .run();
+  return result.meta.changes > 0;
+}
+
+const CLEANUP_BATCH_SIZE = 100;
+
+export async function cleanupExpiredEmails(
+  db: D1Database,
+  unreadCutoff: string,
+  readCutoff: string,
+): Promise<string[]> {
+  const allR2Keys: string[] = [];
+
+  while (true) {
+    const { results: emails } = await db
+      .prepare(
+        `SELECT id, r2_key FROM emails
+         WHERE (read_at IS NULL AND received_at < ?)
+            OR (read_at IS NOT NULL AND received_at < ?)
+         LIMIT ?`,
+      )
+      .bind(unreadCutoff, readCutoff, CLEANUP_BATCH_SIZE)
+      .all<Pick<EmailRecord, "id" | "r2_key">>();
+
+    if (emails.length === 0) break;
+
+    const emailIds = emails.map((e) => e.id);
+    const placeholders = emailIds.map(() => "?").join(",");
+
+    const { results: attachments } = await db
+      .prepare(
+        `SELECT r2_key FROM attachments WHERE email_id IN (${placeholders})`,
+      )
+      .bind(...emailIds)
+      .all<Pick<AttachmentRecord, "r2_key">>();
+
+    await db.batch([
+      db
+        .prepare(
+          `DELETE FROM attachments WHERE email_id IN (${placeholders})`,
+        )
+        .bind(...emailIds),
+      db
+        .prepare(`DELETE FROM emails WHERE id IN (${placeholders})`)
+        .bind(...emailIds),
+    ]);
+
+    allR2Keys.push(
+      ...emails.map((e) => e.r2_key),
+      ...attachments.map((a) => a.r2_key),
+    );
+  }
+
+  return allR2Keys;
 }

@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute cfmail-db --file=schema.sql"
+    "deploy": "pnpm db:migrate && wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
+    "hono": "^4.12.5",
     "postal-mime": "^2.7.3",
     "uuidv7": "^1.1.0"
   },
@@ -16,5 +17,12 @@
     "@cloudflare/workers-types": "^4.20260305.1",
     "typescript": "^5.9.3",
     "wrangler": "^4.71.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "AUTH_TOKEN": {
+        "description": "API 鉴权令牌，可通过 `openssl rand -hex 32` 生成"
+      }
+    }
   }
 }

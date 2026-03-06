@@ -1,0 +1,1 @@
+ALTER TABLE emails ADD COLUMN read_at TEXT;
