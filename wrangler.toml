@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 [vars]
-RETENTION_DAYS_UNREAD = "7"
+RETENTION_DAYS_UNREAD = "30"
 RETENTION_DAYS_READ = "3"
 SENDER_BLACKLIST = ""
 MAX_EMAIL_SIZE = "26214400"

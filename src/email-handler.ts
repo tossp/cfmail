@@ -11,6 +11,7 @@ import {
 } from "./storage";
 import { isBlacklisted, checkJunkMail } from "./spam-filter";
 import { sendNotifications } from "./notify";
+import { log } from "./log";
 
 const DEFAULT_MAX_EMAIL_SIZE = 25 * 1024 * 1024; // 25MB
 const DEFAULT_MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
@@ -19,21 +20,28 @@ export async function handleEmail(
   message: ForwardableEmailMessage,
   env: Env,
 ): Promise<void> {
-  if (isBlacklisted(message.from, env)) {
+  const from = message.from;
+  const to = message.to;
+
+  if (isBlacklisted(from, env)) {
+    log.warn("email.blacklisted", { from, to });
     message.setReject("Sender is blacklisted");
     return;
   }
 
   const junk = checkJunkMail(message.headers);
   if (junk.isJunk) {
+    log.warn("email.junk_rejected", { from, to, reason: junk.reason });
     message.setReject(junk.reason ?? "Junk mail rejected");
     return;
   }
 
   const rawArrayBuffer = await streamToArrayBuffer(message.raw);
+  const rawSize = rawArrayBuffer.byteLength;
 
   const maxEmailSize = parseSize(env.MAX_EMAIL_SIZE) || DEFAULT_MAX_EMAIL_SIZE;
-  if (rawArrayBuffer.byteLength > maxEmailSize) {
+  if (rawSize > maxEmailSize) {
+    log.warn("email.oversized", { from, to, size: rawSize, limit: maxEmailSize });
     message.setReject("Message too large");
     return;
   }
@@ -45,7 +53,10 @@ export async function handleEmail(
   try {
     parsed = await PostalMime.parse(rawArrayBuffer);
   } catch (err) {
-    console.error("Email parse failed, storing raw only:", err);
+    log.error("email.parse_failed", {
+      id: emailId, from, to, size: rawSize,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   let attachmentRecords: AttachmentRecord[] = [];
@@ -56,9 +67,10 @@ export async function handleEmail(
     validAttachments = (parsed.attachments ?? []).filter((att) => {
       if (!(att.content instanceof ArrayBuffer)) return false;
       if (att.content.byteLength > maxAttSize) {
-        console.log(
-          `Stripped attachment "${att.filename}" (${att.content.byteLength} bytes > ${maxAttSize})`,
-        );
+        log.warn("email.attachment_stripped", {
+          id: emailId, filename: att.filename,
+          size: att.content.byteLength, limit: maxAttSize,
+        });
         return false;
       }
       return true;
@@ -84,14 +96,14 @@ export async function handleEmail(
   const emailRecord: EmailRecord = {
     id: emailId,
     message_id: parsed?.messageId ?? message.headers.get("message-id") ?? null,
-    from_address: message.from,
+    from_address: from,
     from_name: parsed?.from?.name ?? null,
-    to_address: message.to,
+    to_address: to,
     subject: parsed?.subject ?? subjectFromHeaders,
     text: parsed?.text ?? null,
     html: parsed?.html ?? null,
     received_at: now,
-    raw_size: rawArrayBuffer.byteLength,
+    raw_size: rawSize,
     has_attachments: attachmentRecords.length > 0 ? 1 : 0,
     read_at: null,
     r2_key: emailRawKey(emailId),
@@ -119,7 +131,9 @@ export async function handleEmail(
     }
     await Promise.all(uploads);
   } catch (err) {
-    console.error("R2 upload failed, rolling back:", err);
+    log.error("email.r2_upload_failed", {
+      id: emailId, error: err instanceof Error ? err.message : String(err),
+    });
     await deleteEmail(env.DB, emailId).catch(() => {});
     const r2Keys = [
       emailRecord.r2_key,
@@ -128,6 +142,13 @@ export async function handleEmail(
     await deleteObjects(env.BUCKET, r2Keys).catch(() => {});
     throw err;
   }
+
+  log.info("email.stored", {
+    id: emailId, from, to, size: rawSize,
+    subject: emailRecord.subject,
+    attachments: attachmentRecords.length,
+    parsed: parsed !== null,
+  });
 
   await sendNotifications(env, emailRecord);
 }

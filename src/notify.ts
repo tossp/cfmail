@@ -1,4 +1,7 @@
 import type { Env, EmailRecord } from "./types";
+import { log } from "./log";
+
+const ACTION_EXPIRY_HOURS = 72;
 
 export async function sendNotifications(
   env: Env,
@@ -36,8 +39,9 @@ async function sendGotify(env: Env, email: EmailRecord): Promise<void> {
   const siteUrl = env.SITE_URL?.trim()?.replace(/\/+$/, "");
   if (siteUrl) {
     const detailUrl = `${siteUrl}/api/emails/${email.id}`;
-    const deleteSig = await signAction(`delete:${email.id}`, env.AUTH_TOKEN);
-    const deleteUrl = `${detailUrl}/delete?sig=${deleteSig}`;
+    const ts = currentHourTs();
+    const deleteSig = await sign(`delete:${email.id}:${ts}`, env.AUTH_TOKEN);
+    const deleteUrl = `${detailUrl}/delete?sig=${deleteSig}&ts=${ts}`;
     lines.push("", `[📋 详情](${detailUrl})  |  [🗑 删除](${deleteUrl})`);
   }
 
@@ -63,8 +67,10 @@ async function sendGotify(env: Env, email: EmailRecord): Promise<void> {
     }),
   });
 
-  if (!resp.ok) {
-    console.error(`Gotify failed: ${resp.status} ${resp.statusText}`);
+  if (resp.ok) {
+    log.info("notify.gotify.sent", { id: email.id });
+  } else {
+    log.error("notify.gotify.failed", { id: email.id, status: resp.status });
   }
 }
 
@@ -97,9 +103,32 @@ async function sendWebhook(env: Env, email: EmailRecord): Promise<void> {
   }
 
   const resp = await fetch(url, { method: "POST", headers, body });
-  if (!resp.ok) {
-    console.error(`Webhook failed: ${resp.status} ${resp.statusText}`);
+  if (resp.ok) {
+    log.info("notify.webhook.sent", { id: email.id });
+  } else {
+    log.error("notify.webhook.failed", { id: email.id, status: resp.status });
   }
+}
+
+export async function verifyActionSig(
+  id: string,
+  secret: string,
+  sig: string,
+  ts: string,
+): Promise<boolean> {
+  const tsNum = parseInt(ts, 10);
+  if (isNaN(tsNum)) return false;
+
+  const now = currentHourTs();
+  if (now - tsNum > ACTION_EXPIRY_HOURS) return false;
+
+  const expected = await sign(`delete:${id}:${ts}`, secret);
+  if (expected.length !== sig.length) return false;
+  const encoder = new TextEncoder();
+  return crypto.subtle.timingSafeEqual(
+    encoder.encode(expected),
+    encoder.encode(sig),
+  );
 }
 
 async function sign(payload: string, secret: string): Promise<string> {
@@ -117,22 +146,8 @@ async function sign(payload: string, secret: string): Promise<string> {
     .join("");
 }
 
-async function signAction(payload: string, secret: string): Promise<string> {
-  return sign(payload, secret);
-}
-
-export async function verifyActionSig(
-  payload: string,
-  secret: string,
-  sig: string,
-): Promise<boolean> {
-  const expected = await sign(payload, secret);
-  if (expected.length !== sig.length) return false;
-  const encoder = new TextEncoder();
-  return crypto.subtle.timingSafeEqual(
-    encoder.encode(expected),
-    encoder.encode(sig),
-  );
+function currentHourTs(): number {
+  return Math.floor(Date.now() / 3600_000);
 }
 
 function formatSize(bytes: number): string {

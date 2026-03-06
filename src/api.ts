@@ -4,10 +4,22 @@ import type { Env } from "./types";
 import { listEmails, getEmailById, deleteEmail, getAttachment, markAsRead } from "./db";
 import { getObject, deleteObjects } from "./storage";
 import { verifyActionSig } from "./notify";
+import { log } from "./log";
 
 type HonoEnv = { Bindings: Env };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const app = new Hono<HonoEnv>();
+
+app.onError((err, c) => {
+  log.error("api.error", {
+    method: c.req.method,
+    path: c.req.path,
+    error: err instanceof Error ? err.message : String(err),
+  });
+  return c.json({ error: "Internal server error" }, 500);
+});
 
 app.use("*", cors());
 
@@ -22,7 +34,8 @@ app.get("/api/emails/:id/delete", async (c) => {
         `<body><div><h1>${ok ? "✅" : "❌"}</h1><h1>${title}</h1><p>${msg}</p></div></body></html>`,
     );
 
-  if (!sig || !(await verifyActionSig(`delete:${id}`, c.env.AUTH_TOKEN, sig))) {
+  const ts = c.req.query("ts") ?? "";
+  if (!sig || !ts || !(await verifyActionSig(id, c.env.AUTH_TOKEN, sig, ts))) {
     return html("签名无效", "此链接无效或已过期", false);
   }
 
@@ -51,6 +64,14 @@ app.use("/api/*", async (c, next) => {
   if (!timingSafeEqual(token, c.env.AUTH_TOKEN)) {
     return c.json({ error: "Unauthorized" }, 401);
   }
+  await next();
+});
+
+app.use("/api/emails/:id{.+}", async (c, next) => {
+  const id = c.req.param("id");
+  if (id && !UUID_RE.test(id)) return c.json({ error: "Invalid email ID" }, 400);
+  const aid = c.req.param("aid");
+  if (aid && !UUID_RE.test(aid)) return c.json({ error: "Invalid attachment ID" }, 400);
   await next();
 });
 

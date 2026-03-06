@@ -1,7 +1,7 @@
 export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
-  RATE_LIMITER: RateLimit;
+  RATE_LIMITER?: RateLimit;
   AUTH_TOKEN: string;
   RETENTION_DAYS_UNREAD: string;
   RETENTION_DAYS_READ: string;

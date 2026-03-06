@@ -157,52 +157,58 @@ export async function markAsRead(
 
 const CLEANUP_BATCH_SIZE = 100;
 
-export async function cleanupExpiredEmails(
+export interface CleanupBatch {
+  emailIds: string[];
+  r2Keys: string[];
+}
+
+export async function getExpiredBatch(
   db: D1Database,
   unreadCutoff: string,
   readCutoff: string,
-): Promise<string[]> {
-  const allR2Keys: string[] = [];
+): Promise<CleanupBatch | null> {
+  const { results: emails } = await db
+    .prepare(
+      `SELECT id, r2_key FROM emails
+       WHERE (read_at IS NULL AND received_at < ?)
+          OR (read_at IS NOT NULL AND received_at < ?)
+       LIMIT ?`,
+    )
+    .bind(unreadCutoff, readCutoff, CLEANUP_BATCH_SIZE)
+    .all<Pick<EmailRecord, "id" | "r2_key">>();
 
-  while (true) {
-    const { results: emails } = await db
-      .prepare(
-        `SELECT id, r2_key FROM emails
-         WHERE (read_at IS NULL AND received_at < ?)
-            OR (read_at IS NOT NULL AND received_at < ?)
-         LIMIT ?`,
-      )
-      .bind(unreadCutoff, readCutoff, CLEANUP_BATCH_SIZE)
-      .all<Pick<EmailRecord, "id" | "r2_key">>();
+  if (emails.length === 0) return null;
 
-    if (emails.length === 0) break;
+  const emailIds = emails.map((e) => e.id);
+  const placeholders = emailIds.map(() => "?").join(",");
 
-    const emailIds = emails.map((e) => e.id);
-    const placeholders = emailIds.map(() => "?").join(",");
+  const { results: attachments } = await db
+    .prepare(
+      `SELECT r2_key FROM attachments WHERE email_id IN (${placeholders})`,
+    )
+    .bind(...emailIds)
+    .all<Pick<AttachmentRecord, "r2_key">>();
 
-    const { results: attachments } = await db
-      .prepare(
-        `SELECT r2_key FROM attachments WHERE email_id IN (${placeholders})`,
-      )
-      .bind(...emailIds)
-      .all<Pick<AttachmentRecord, "r2_key">>();
-
-    await db.batch([
-      db
-        .prepare(
-          `DELETE FROM attachments WHERE email_id IN (${placeholders})`,
-        )
-        .bind(...emailIds),
-      db
-        .prepare(`DELETE FROM emails WHERE id IN (${placeholders})`)
-        .bind(...emailIds),
-    ]);
-
-    allR2Keys.push(
+  return {
+    emailIds,
+    r2Keys: [
       ...emails.map((e) => e.r2_key),
       ...attachments.map((a) => a.r2_key),
-    );
-  }
+    ],
+  };
+}
 
-  return allR2Keys;
+export async function deleteEmailsByIds(
+  db: D1Database,
+  emailIds: string[],
+): Promise<void> {
+  const placeholders = emailIds.map(() => "?").join(",");
+  await db.batch([
+    db
+      .prepare(`DELETE FROM attachments WHERE email_id IN (${placeholders})`)
+      .bind(...emailIds),
+    db
+      .prepare(`DELETE FROM emails WHERE id IN (${placeholders})`)
+      .bind(...emailIds),
+  ]);
 }

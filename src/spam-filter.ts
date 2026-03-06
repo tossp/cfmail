@@ -18,26 +18,33 @@ interface JunkResult {
 }
 
 export function checkJunkMail(headers: Headers): JunkResult {
-  const dmarcResult = getHeaderValue(headers, "dmarc");
-  if (dmarcResult === "fail") {
+  const authResults = (headers.get("authentication-results") ?? "").toLowerCase();
+
+  const dmarc = extractResult(authResults, "dmarc");
+  if (dmarc === "fail") {
     return { isJunk: true, reason: "DMARC check failed" };
   }
 
-  const spfResult = getHeaderValue(headers, "received-spf");
-  if (spfResult === "fail" || spfResult === "softfail") {
-    return { isJunk: true, reason: `SPF check: ${spfResult}` };
+  const spf = extractResult(authResults, "spf");
+  if (spf === "fail" || spf === "softfail") {
+    return { isJunk: true, reason: `SPF check: ${spf}` };
   }
 
-  const authResults = headers.get("authentication-results") ?? "";
-  if (authResults.includes("dkim=fail")) {
+  const spfHeader = headers.get("received-spf")?.trim().toLowerCase().split(/\s+/)[0];
+  if (spfHeader === "fail" || spfHeader === "softfail") {
+    return { isJunk: true, reason: `SPF check: ${spfHeader}` };
+  }
+
+  const dkim = extractResult(authResults, "dkim");
+  if (dkim === "fail") {
     return { isJunk: true, reason: "DKIM check failed" };
   }
 
   return { isJunk: false };
 }
 
-function getHeaderValue(headers: Headers, prefix: string): string {
-  const value = headers.get(prefix);
-  if (!value) return "";
-  return value.trim().toLowerCase().split(/\s+/)[0];
+function extractResult(authResults: string, mechanism: string): string {
+  const re = new RegExp(`${mechanism}\\s*=\\s*(\\w+)`);
+  const match = authResults.match(re);
+  return match?.[1] ?? "";
 }
