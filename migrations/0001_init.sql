@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS emails (
   received_at TEXT NOT NULL,
   raw_size INTEGER,
   has_attachments INTEGER DEFAULT 0,
+  read_at TEXT,
   r2_key TEXT NOT NULL
 );
 
@@ -25,4 +26,5 @@ CREATE TABLE IF NOT EXISTS attachments (
 
 CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at);
 CREATE INDEX IF NOT EXISTS idx_emails_to_address ON emails(to_address);
+CREATE INDEX IF NOT EXISTS idx_emails_read_received ON emails(read_at, received_at);
 CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id);
