@@ -10,6 +10,9 @@ export interface Env {
   MAX_EMAIL_SIZE: string;
   WEBHOOK_URL: string;
   WEBHOOK_SECRET: string;
+  GOTIFY_URL: string;
+  GOTIFY_TOKEN: string;
+  GOTIFY_CLICK_URL: string;
 }
 
 interface RateLimit {

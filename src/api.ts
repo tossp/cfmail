@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Env } from "./types";
 import { listEmails, getEmailById, deleteEmail, getAttachment, markAsRead } from "./db";
 import { getObject, deleteObjects } from "./storage";
+import { verifyActionSig } from "./notify";
 
 type HonoEnv = { Bindings: Env };
 
@@ -10,7 +11,33 @@ const app = new Hono<HonoEnv>();
 
 app.use("*", cors());
 
+app.get("/api/emails/:id/delete", async (c) => {
+  const id = c.req.param("id");
+  const sig = c.req.query("sig") ?? "";
+  const html = (title: string, msg: string, ok: boolean) =>
+    c.html(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title>` +
+        `<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;` +
+        `background:#${ok ? "f0fdf4" : "fef2f2"}}div{text-align:center;padding:2rem}h1{font-size:2rem}p{color:#666}</style></head>` +
+        `<body><div><h1>${ok ? "✅" : "❌"}</h1><h1>${title}</h1><p>${msg}</p></div></body></html>`,
+    );
+
+  if (!sig || !(await verifyActionSig(`delete:${id}`, c.env.AUTH_TOKEN, sig))) {
+    return html("签名无效", "此链接无效或已过期", false);
+  }
+
+  const result = await deleteEmail(c.env.DB, id);
+  if (!result) return html("邮件不存在", "该邮件可能已被删除", false);
+
+  await deleteObjects(c.env.BUCKET, result.r2Keys);
+  return html("已删除", "邮件已成功删除", true);
+});
+
 app.use("/api/*", async (c, next) => {
+  if (c.req.path.endsWith("/delete") && c.req.query("sig")) {
+    return next();
+  }
+
   if (c.env.RATE_LIMITER) {
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
     const { success } = await c.env.RATE_LIMITER.limit({ key: ip });

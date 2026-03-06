@@ -13,6 +13,7 @@
 - 垃圾邮件过滤（SPF/DKIM/DMARC 检查 + 发件人黑名单）
 - 附件/邮件大小限制
 - Webhook 通知（HMAC-SHA256 签名）
+- Gotify 推送通知（Markdown 格式 + 点击跳转）
 - API 限流（Cloudflare Rate Limiting）
 - 邮件解析失败降级存储（原始 .eml 不丢失）
 - 已读/未读状态，差异化保留策略自动清理
@@ -127,6 +128,9 @@ DELETE /api/emails/:id
 | `MAX_ATTACHMENT_SIZE` | `10485760` | 单个附件最大字节数（默认 10MB），超限附件自动剔除 |
 | `WEBHOOK_URL` | `""` | 收到邮件后推送的 Webhook URL（留空则不推送） |
 | `WEBHOOK_SECRET` | `""` | Webhook HMAC-SHA256 签名密钥（留空则不签名） |
+| `GOTIFY_URL` | `""` | Gotify 服务地址（如 `https://gotify.example.com`，留空则不推送） |
+| `GOTIFY_TOKEN` | `""` | Gotify Application Token |
+| `GOTIFY_CLICK_URL` | `""` | 通知点击跳转 URL 模板，`{id}` 会替换为邮件 ID（如 `https://mail.example.com/emails/{id}`） |
 
 Secret 变量（通过 `wrangler secret put` 设置）：
 
@@ -176,6 +180,29 @@ simple = { limit = 100, period = 60 }
 
 如果配置了 `WEBHOOK_SECRET`，请求头会附带 `X-Webhook-Signature`（HMAC-SHA256 hex），可用于验证请求来源。
 
+## Gotify 推送
+
+配置 `GOTIFY_URL` 和 `GOTIFY_TOKEN` 后，收到邮件会通过 [Gotify](https://gotify.net/) 发送推送通知：
+
+- 使用 Markdown 格式展示发件人、收件人、大小等信息
+- 预览邮件正文前 200 字符
+- 配合 `GOTIFY_CLICK_URL` 可实现点击通知跳转到邮件详情
+- 消息体内附带 HMAC 签名的**删除链接**，点击可直接删除邮件（无需暴露 AUTH_TOKEN）
+
+利用 Gotify 的 `client::notification.click.url` extras，在 Android/Web 客户端上点击通知可直接打开邮件：
+
+```toml
+# wrangler.toml 示例
+GOTIFY_URL = "https://gotify.example.com"
+GOTIFY_TOKEN = "your-app-token"
+GOTIFY_CLICK_URL = "https://cfmail.your-domain.workers.dev/api/emails/{id}"
+```
+
+`{id}` 占位符会自动替换为实际邮件 ID。通知消息中会自动生成两个操作链接：
+
+- **📋 详情** — 跳转到 `{GOTIFY_CLICK_URL}` 查看邮件（同时自动标记已读）
+- **🗑 删除** — 携带 HMAC-SHA256 签名，GET 请求直接删除邮件，无需 Bearer Token
+
 ## 自动清理
 
 Cron Trigger 每天 UTC 03:00 执行，根据已读/未读状态差异化清理：
@@ -200,7 +227,7 @@ src/
 ├── api.ts             # Hono HTTP API 路由 + 鉴权中间件
 ├── email-handler.ts   # 邮件接收、过滤、解析、存储
 ├── spam-filter.ts     # 垃圾邮件检测（黑名单 + SPF/DKIM/DMARC）
-├── webhook.ts         # Webhook 推送 + HMAC 签名
+├── notify.ts          # 通知推送（Webhook + Gotify）
 ├── db.ts              # D1 数据库操作
 ├── storage.ts         # R2 存储操作
 └── types.ts           # TypeScript 类型定义

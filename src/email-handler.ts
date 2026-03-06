@@ -10,7 +10,7 @@ import {
   attachmentKey,
 } from "./storage";
 import { isBlacklisted, checkJunkMail } from "./spam-filter";
-import { sendWebhook } from "./webhook";
+import { sendNotifications } from "./notify";
 
 const DEFAULT_MAX_EMAIL_SIZE = 25 * 1024 * 1024; // 25MB
 const DEFAULT_MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
@@ -129,9 +129,7 @@ export async function handleEmail(
     throw err;
   }
 
-  await sendWebhook(env, emailRecord).catch((err) =>
-    console.error("Webhook error:", err),
-  );
+  await sendNotifications(env, emailRecord);
 }
 
 function parseSize(value: string | undefined): number {
